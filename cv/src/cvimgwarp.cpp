@@ -1218,7 +1218,39 @@ cv2DRotationMatrix( CvPoint2D32f center, double angle,
 /****************************************************************************************\
 *                                    WarpPerspective                                     *
 \****************************************************************************************/
-#include <stdio.h>
+
+static unsigned char loadMicroEx(unsigned char*ptr,unsigned char* src,int w,int h)\
+{\
+    int ret;\
+    unsigned char *uv = src+w*h;\
+    int n = ptr-src;\
+    int m = n/3;\
+    int y = m/w;\
+    int x = m%w;\
+    \
+    int v = ((y)/2)*w + ((x)/2)*2;\
+    int u = ((y)/2)*w + ((x)/2)*2 + 1;\
+    \
+    if(n%3 == 2){\
+        ret = (int)(char)src[m] - 80 + ((360 * ((int)(char)uv[v] - 128))>>8) ;\
+        if(ret > 255)ret=255;\
+	if(ret < 0)ret = 0;\
+        return (unsigned char)ret;\
+    }\
+    if(n%3 == 1){\
+        ret = (int)(char)src[m] -80 - (( ( 88 * ((int)(char)uv[u] - 128)  + 184 * ((int)(char)uv[v] - 128)) )>>8) ;\
+        if(ret > 255)ret=255;\
+	if(ret < 0)ret = 0;\
+        return (unsigned char)ret;\
+    }\
+    if(n%3 == 0){\
+        ret = (int)(char)src[m] -80  +((455 * ((int)(char)uv[u] - 128))>>8) ;\
+        if(ret > 255)ret=255;\
+	if(ret < 0)ret = 0;\
+	return (unsigned char)ret;\
+    }\
+}\
+
 #define ICV_DEF_WARP_PERSPECTIVE_BILINEAR_FUNC( flavor, arrtype, load_macro, cast_macro )\
 static CvStatus CV_STDCALL                                                  \
 icvWarpPerspective_Bilinear_##flavor##_CnR(                                 \
@@ -1233,15 +1265,14 @@ icvWarpPerspective_Bilinear_##flavor##_CnR(                                 \
     float A31 = (float)matrix[6], A32 = (float)matrix[7], A33 = (float)matrix[8];\
                                                                             \
     step /= sizeof(src[0]);                                                 \
-    dststep /= sizeof(dst[0]);						    \
-    printf("cn=%d step=%d dststep=%d\n",cn,step,dststep);                                              \
+    dststep /= sizeof(dst[0]);                                              \
                                                                             \
     for( y = 0; y < dsize.height; y++, dst += dststep )                     \
     {                                                                       \
         float xs0 = A12*y + A13;                                            \
         float ys0 = A22*y + A23;                                            \
         float ws = A32*y + A33;                                             \
-                             printf("\n");                                               \
+                                                                            \
         for( x = 0; x < dsize.width; x++, xs0 += A11, ys0 += A21, ws += A31 )\
         {                                                                   \
             float inv_ws = 1.f/ws;                                          \
@@ -1257,27 +1288,22 @@ icvWarpPerspective_Bilinear_##flavor##_CnR(                                 \
                 (unsigned)iys < (unsigned)(ssize.height - 1) )              \
             {                                                               \
                 const arrtype* ptr = src + step*iys + ixs*cn;               \
-                printf("0");                                                            \
+                                                                            \
                 for( k = 0; k < cn; k++ )                                   \
                 {                                                           \
-                    p0 = load_macro(ptr[k]) +                               \
-                        a * (load_macro(ptr[k+cn]) - load_macro(ptr[k]));   \
-                    p1 = load_macro(ptr[k+step]) +                          \
-                        a * (load_macro(ptr[k+cn+step]) -                   \
-                             load_macro(ptr[k+step]));                      \
+                    p0 = loadMicroEx((unsigned char*)(ptr+k),(unsigned char*)src,ssize.width,ssize.height) + a * (loadMicroEx((unsigned char*)(ptr+k+cn),(unsigned char*)src,ssize.width,ssize.height) - loadMicroEx((unsigned char*)(ptr+k),(unsigned char*)src,ssize.width,ssize.height));   \
+                    p1 = loadMicroEx((unsigned char*)(ptr+k+step),(unsigned char*)src,ssize.width,ssize.height) + a * (loadMicroEx((unsigned char*)(ptr+k+cn+step),(unsigned char*)src,ssize.width,ssize.height) - loadMicroEx((unsigned char*)(ptr+k+step),(unsigned char*)src,ssize.width,ssize.height)); \
                     dst[x*cn+k] = (arrtype)cast_macro(p0 + b*(p1 - p0));    \
                 }                                                           \
             }                                                               \
             else if( (unsigned)(ixs+1) < (unsigned)(ssize.width+1) &&       \
                      (unsigned)(iys+1) < (unsigned)(ssize.height+1))        \
-            {            \
-		printf("_");                                                   \
+            {                                                               \
                 int x0 = ICV_WARP_CLIP_X( ixs );                            \
                 int y0 = ICV_WARP_CLIP_Y( iys );                            \
                 int x1 = ICV_WARP_CLIP_X( ixs + 1 );                        \
                 int y1 = ICV_WARP_CLIP_Y( iys + 1 );                        \
                 const arrtype* ptr0, *ptr1, *ptr2, *ptr3;                   \
-                                                                            \
                 ptr0 = src + y0*step + x0*cn;                               \
                 ptr1 = src + y0*step + x1*cn;                               \
                 ptr2 = src + y1*step + x0*cn;                               \
@@ -1285,10 +1311,8 @@ icvWarpPerspective_Bilinear_##flavor##_CnR(                                 \
                                                                             \
                 for( k = 0; k < cn; k++ )                                   \
                 {                                                           \
-                    p0 = load_macro(ptr0[k]) +                              \
-                        a * (load_macro(ptr1[k]) - load_macro(ptr0[k]));    \
-                    p1 = load_macro(ptr2[k]) +                              \
-                        a * (load_macro(ptr3[k]) - load_macro(ptr2[k]));    \
+                    p0 = loadMicroEx((unsigned char*)(ptr0+k),(unsigned char*)src,ssize.width,ssize.height) + a * (loadMicroEx((unsigned char*)(ptr1+k),(unsigned char*)src,ssize.width,ssize.height) - loadMicroEx((unsigned char*)(ptr0+k),(unsigned char*)src,ssize.width,ssize.height));    \
+                    p1 = loadMicroEx((unsigned char*)(ptr2+k),(unsigned char*)src,ssize.width,ssize.height) + a * (loadMicroEx((unsigned char*)(ptr3+k),(unsigned char*)src,ssize.width,ssize.height) - loadMicroEx((unsigned char*)(ptr2+k),(unsigned char*)src,ssize.width,ssize.height));    \
                     dst[x*cn+k] = (arrtype)cast_macro(p0 + b*(p1 - p0));    \
                 }                                                           \
             }                                                               \
